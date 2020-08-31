@@ -72,5 +72,7 @@ class euler:
         return self
 
     def __next__(self):
+        # I cannot for the life of me figure out where this negative sign came from,
+        # but the example breaks when I remove it.
         self.u = -np.linalg.solve(self.A_imp, self.A_exp.dot(self.u))
         return self.u

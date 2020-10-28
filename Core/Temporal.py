@@ -8,12 +8,16 @@ class RKIterator:
     Runge Kutta Baby!!!
     """
 
+    #
     a = [[0.0, 0.0, 0.0, 0.0],
          [0.5, 0.0, 0.0, 0.0],
          [0.0, 0.5, 0.0, 0.0],
          [0.0, 0.0, 1.0, 0.0]]
+    #
     b = [1/3, 1/6, 1/6, 1/3]
+    #
     c = [0.0, 0.5, 0.5, 1.0]
+    # number of steps
     s = 4
 
     def __init__(self, func, dt, y0):
@@ -76,3 +80,15 @@ class euler:
         # but the example breaks when I remove it.
         self.u = -np.linalg.solve(self.A_imp, self.A_exp.dot(self.u))
         return self.u
+
+if __name__ == '__main__':
+
+    def F1(t, v):
+        return t * v
+
+    V = 2
+
+    iterator = RKIterator(F1, V, 0.01)
+
+    for i in range(10):
+        print(iterator.__next__())

@@ -1,93 +1,97 @@
 import numpy as np
+import pandas as pd
 
-# Unfinished port of dp45 from Harder's class.
-# Edits are likely to revolve around porting matlab's native matrix interpretation
-# to explicit numpy statements, and indexing quirks.
 
-rk4 = {
-    'A': np.asarray([[0.0, 0.0, 0.0, 0.0], [0.5, 0.0, 0.0, 0.0], [0.0, 0.5, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]),
-    'b': np.asarray([1/3, 1/6, 1/6, 1/3]),
-    'b*': None,
-    'c': np.asarray([0.0, 0.5, 0.5, 1.0])
-    }
+class ODESolver:
+    """Base class for iteratively solving systems of ODEs."""
 
-dp45 = {
-    'A': np.asarray([[0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0], [1/4, 3/4, 0, 0, 0, 0, 0], [11/9, -14/3, 40/9, 0, 0, 0, 0],[4843/1458, -3170/243, 8056/729, -53/162, 0, 0, 0],[9017/3168, -355/33, 46732/5247, 49/176, -5103/18656, 0, 0], [35/384, 0, 500/1113, 125/192, -2187/6784, 11/84, 0]]),
-    'b': np.asarray([5179/57600, 0, 7571/16695, 393/640, -92097/339200, 187/2100, 1/40]),
-    'b*': None,
-    'c': np.asarray([0.0, 0.5, 0.5, 1.0]),
-    }
+    def __init__(self, func, y0, t0, dt = 0.01, epsilon = 0.001, **kwargs):
+        self.y = y0
+        self.t = t0
+        self.func = func
 
-class RungeKutta:
-    # 4th order by default
-    A = np.asarray([[0.0, 0.0, 0.0, 0.0], # Matrix of slopes for each approximation at each step
-                    [0.5, 0.0, 0.0, 0.0],
-                    [0.0, 0.5, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0]])
-    b  = np.asarray([1/3, 1/6, 1/6, 1/3] ) # Weight vector for linear approximations.
-    b_ = np.asarray([1/3, 1/6, 1/6, 1/3] )
-    c = np.asarray( [0.0, 0.5, 0.5, 1.0] ) # Sizes of each partial approximation step, relative to h
-    s = 4
-
-    def __init__(self, f, t0, y0, h):
-        self.f = f
-        self.t, self.y = t0, y0
-        self.h = h
+        # Finite differential quantities
+        self._dt  = dt
+        self._epsilon = epsilon
 
     def __iter__(self):
-        """Docstring Inherited."""
         return self
 
+    def time_step(self):
+        y_new, t_new = self.y, self.t
+        return y_new, t_new
+
     def __next__(self):
-        """"""
+        y_new, t_new = self.time_step()
+        self.y, self.t = y_new, t_new
+        return y_new, t_new
 
-        k = np.zeros(self.s)
+def load_butcher(butcher_name, **kwargs):
+    """Provides an interface for reading a template array from CSV files.
+    The standard format for these files is as a header-less
+    @param delimiter: delimiter for parsing CSV file, defaults to ','
+    @param path: path to file.
+    @return: _ButcherTableau object.
+    """
+    path = 'dir/' + butcher_name + '.csv'
 
-        for j in range(self.s):
-            # Read c to for relative spacing of t for approx j
-            dt_j = self.h * self.c[j]
-            # Read A for weightings of past k values to calculate dy for approx j
-            dy_j = dt_j * np.dot(k, self.A[:, j])
-            # Calculate actual value k of f for approx j
-            k[j] = self.f(self.t + dt_j, self.y + dy_j)
+    def from_csv(path, delimiter=','):
+        butcher_raw = pd.read_csv(path, sep=delimiter, header=None)
+        butcher_array = butcher_raw.apply(pd.eval).to_numpy()
+        return butcher_array
 
-
-        self.y = self.y + self.h * np.dot(k, self.b)
-        self.t += self.h
-
-        return self.y, self.t
-
-
-def rk4(f, t_rng, y0, n):
-    t0, tf = t_rng
-    h = (tf - t0) / (n - 1)
-
-    t_out = np.zeros(n)
-    y_out = np.zeros(n)
-
-    t_out[0], y_out[0] = t0, y0
-
-    A = np.asarray([[0.0, 0.0, 0.0, 0.0],
-                    [0.5, 0.0, 0.0, 0.0],
-                    [0.0, 0.5, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0]])
-    b = np.asarray( [1/3, 1/6, 1/6, 1/3] )
-    c = np.asarray( [0.0, 0.5, 0.5, 1.0] )
+    return from_csv(path, **kwargs)
 
 
-    for k in range(n):
+class RungeKutta(ODESolver):
 
-        n_k = 4
-        k = np.zeros((1, n_k))
+    def __init__(self, func, t0, y0, name='rk4', **kwargs):
+        ODESolver.__init__(self, func, y0, t0, **kwargs)
 
-        for m in range(n_k):
-            dt = h * c[m]
-            dy = dt * np.dot(k, A[:, m])
-            k[m] = f(t_out[k] + dt, y_out[k] + dy)
+        butcher_array = load_butcher(name)
+        self._init(butcher_array)
 
-        y_tmp = y_out[k] + h * np.dot(k, b)
+    def _init(self, butcher_array):
+        """Initialize internal machinery based upon a provided butcher array."""
+        rows, cols = butcher_array.shape
+        self._A = butcher_array[:cols]  # Square matrix
+        self._b = butcher_array[cols]
+        self._c = butcher_array[-1]
+        self._s = cols
+        self._b_ = None  # Assume non-adaptive case.
 
-        y_out[k + 1] = y_tmp
-        t_out[k + 1] = t_out[k] + h
+        # check to see if b_ is present, and react accordingly
+        if rows - cols == 3:
+            self.b_ = butcher_array[-2]
+        elif rows - cols != 2:
+            raise ValueError(
+                'Butcher tableau is improperly formatted:'
+                'Could not infer from shape({0}, {1})'.format(rows, cols))
 
-    return t_out, y_out
+        if len(butcher_array.shape) != 2:
+            raise ValueError(
+                'Butcher tableau is improperly formatted:'
+                'template array must be a Matrix.')
+
+    def time_step(self):
+        k = np.zeros(self._s)
+
+        for j in range(self._s):
+            dt_j = self._dt * self._c[j]
+            dy_j = dt_j * np.dot(k, self._A[:, j])
+            k[j] = self.func(self.t + dt_j, self.y + dy_j)
+
+        y = self.y + self._dt * np.dot(k, self._b)
+
+        if self._b_ is not None:
+            y_ = self.y + self._dt * np.dot(k, self.b_)
+
+            local_error = y - y_
+
+        t = self.t + dt
+
+
+
+
+if __name__ == '__main__':
+    runge = RungeKutta()

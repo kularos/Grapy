@@ -1,6 +1,21 @@
 import numpy as np
 import pandas as pd
 
+def load_butcher(butcher_name, **kwargs):
+    """Provides an interface for reading a template array from CSV files.
+    The standard format for these files is as a header-less
+    @param delimiter: delimiter for parsing CSV file, defaults to ','
+    @param path: path to file.
+    @return: _ButcherTableau object.
+    """
+    path = 'dir/' + butcher_name + '.csv'
+
+    def from_csv(path, delimiter=','):
+        butcher_raw = pd.read_csv(path, sep=delimiter, header=None)
+        butcher_array = butcher_raw.apply(pd.eval).to_numpy()
+        return butcher_array
+
+    return from_csv(path, **kwargs)
 
 class ODESolver:
     """Base class for iteratively solving systems of ODEs."""
@@ -26,28 +41,11 @@ class ODESolver:
         self.y, self.t = y_new, t_new
         return y_new, t_new
 
-def load_butcher(butcher_name, **kwargs):
-    """Provides an interface for reading a template array from CSV files.
-    The standard format for these files is as a header-less
-    @param delimiter: delimiter for parsing CSV file, defaults to ','
-    @param path: path to file.
-    @return: _ButcherTableau object.
-    """
-    path = 'dir/' + butcher_name + '.csv'
-
-    def from_csv(path, delimiter=','):
-        butcher_raw = pd.read_csv(path, sep=delimiter, header=None)
-        butcher_array = butcher_raw.apply(pd.eval).to_numpy()
-        return butcher_array
-
-    return from_csv(path, **kwargs)
-
 
 class RungeKutta(ODESolver):
 
     def __init__(self, func, t0, y0, name='rk4', **kwargs):
         ODESolver.__init__(self, func, y0, t0, **kwargs)
-
         butcher_array = load_butcher(name)
         self._init(butcher_array)
 
@@ -81,17 +79,15 @@ class RungeKutta(ODESolver):
             dy_j = dt_j * np.dot(k, self._A[:, j])
             k[j] = self.func(self.t + dt_j, self.y + dy_j)
 
-        y = self.y + self._dt * np.dot(k, self._b)
+        y_new = self.y + self._dt * np.dot(k, self._b)
+        t_new = self.t + self._dt
 
-        if self._b_ is not None:
-            y_ = self.y + self._dt * np.dot(k, self.b_)
-
-            local_error = y - y_
-
-        t = self.t + dt
-
+        return y_new, t_new
 
 
 
 if __name__ == '__main__':
+
+
+
     runge = RungeKutta()

@@ -92,7 +92,7 @@ class RungeKutta(ODESolver):
 
         for j in range(self.s):
             # Explicitly calculate approximations of derivative.
-            dt_j = self.dta * self.c[j]
+            dt_j = self.dt * self.c[j]
             dy_j = dt_j * np.dot(k, self.A[:, j])
             k[j] = self.func(self.t + dt_j, self.y + dy_j)
 

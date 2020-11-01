@@ -48,12 +48,11 @@ def load_butcher(butcher_name, **kwargs):
 
     return butcher_dict
 
+class RungeKutta:
+    # define signature
+    A, b, b_, c, s, p = None, None, None, None, None, None
 
-
-class ODESolver:
-    """Base class for iteratively solving systems of ODEs."""
-
-    def __init__(self, func, t0, y0, dt, e_drift = 0.1, **kwargs):
+    def __init__(self, func, t0, y0, dt, name='rk4', e_drift=0.1, **kwargs):
         # Instance properties for IVP.
         self.y = y0
         self.t = t0
@@ -62,60 +61,47 @@ class ODESolver:
         # Finite differential quantities
         self.dt = dt
         self._e_drift = e_drift
+        self.__dict__.update(load_butcher(name))
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        y_new = self.time_step()
-        t_new = self.t + self.dt
-
-        self.t = t_new
-        self.y = y_new
+        y_new, t_new = self.time_step(self.y, self.t)
+        self.y, self.t = y_new, t_new
         return y_new, t_new
 
-    def time_step(self):
-        y_new = self.y
-        return y_new
-
-class RungeKutta(ODESolver):
-    # define signature
-    A, b, b_, c, s, p = None, None, None, None, None, None
-
-
-    def __init__(self, func, t0, y0, dt, name='rk4', **kwargs):
-        ODESolver.__init__(self, func, t0, y0, dt, **kwargs)
-        self.__dict__.update(load_butcher(name))
-
-    def time_step(self):
+    def time_step(self, y0, t0):
         k = np.zeros(self.s)
+        t1 = t0 + self.dt
 
         for j in range(self.s):
             # Explicitly calculate approximations of derivative.
             dt_j = self.dt * self.c[j]
             dy_j = dt_j * np.dot(k, self.A[:, j])
-            k[j] = self.func(self.t + dt_j, self.y + dy_j)
+            k[j] = self.func(t0 + dt_j, y0 + dy_j)
 
-        y = self.y + self.dt * np.dot(k, self.b)
+        y1 = y0 + self.dt * np.dot(k, self.b)
 
-        if self.b_ is not None:
-            y_ =  self.y + self.dt * np.dot(k, self.b_)
+        # End non-adaptive schemes here
+        if self.b_ is None:
+            return y1, t1
 
-            sigma = self._e_drift * self.dt / abs(y - y_) ** (1 / (self.p - 1))
+        # Weird issue where y1 and y1_ are way closer than they should be.
+        # This causes adaptive schemes to exponentially grow in step size.
+        y1_ = y0 + self.dt*np.dot(k, self.b_)
+        sigma = (self._e_drift * self.dt / abs(y1 - y1_)) ** (1 / (self.p - 1))
 
-            # Recursively call time_step to until sigma converges
-            if sigma <= 1:
-                self.dt /= 2
-                return self.time_step()
-            if sigma >= 2:
-                #self.dt *= 2
-                pass
-
-            return y
-
+        # Look into seeing if this segment can be tuned to get a desired
+        # speed/accuracy relationship.
+        if sigma >= 2:
+            self.dt *= 2
+            return y1, t1
+        elif sigma <= 1:
+            self.dt /= 2
+            return self.time_step(y0, t0)
         else:
-            # non-adaptive case
-            return y
+            return y1, t1
 
 
 def harder_dp45(f, t_rng, y0, h, eps_abs):
@@ -149,7 +135,7 @@ if __name__ == '__main__':
     def f4a(t, y):
         return y*(2-t) * t + (t - 1)
 
-    t2a, y2a = harder_dp45(f4a, [0, 5], 1, 0.1, 10e-6)
+    t2a, y2a = harder_dp45(f4a, [0, 5], 1, 0.1, 10e-3)
 
     import matplotlib.pyplot as plt
 

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import abc
 
 
 def load_butcher(butcher_name, **kwargs):
@@ -48,20 +49,18 @@ def load_butcher(butcher_name, **kwargs):
 
     return butcher_dict
 
-class RungeKutta:
-    # define signature
-    A, b, b_, c, s, p = None, None, None, None, None, None
+class DifferentialIterator:
 
-    def __init__(self, func, t0, y0, dt, name='rk4', e_drift=0.1, **kwargs):
+    def __init__(self, func, t0, y0, dt, e_drift=0.1, **kwargs):
         # Instance properties for IVP.
         self.y = y0
         self.t = t0
         self.func = func
+        self.N = y0.size
 
         # Finite differential quantities
         self.dt = dt
         self._e_drift = e_drift
-        self.__dict__.update(load_butcher(name))
 
     def __iter__(self):
         return self
@@ -71,15 +70,29 @@ class RungeKutta:
         self.y, self.t = y_new, t_new
         return y_new, t_new
 
+    @abc.abstractmethod
     def time_step(self, y0, t0):
-        k = np.zeros(self.s)
+        y1, t1 = NotImplemented
+        return y1, t1
+
+
+class RungeKutta(DifferentialIterator):
+    # define signature
+    A, b, b_, c, s, p = None, None, None, None, None, None
+
+    def __init__(self, *args, name='rk4',**kwargs):
+        super().__init__(*args, **kwargs)
+        self.__dict__.update(load_butcher(name))
+
+    def time_step(self, y0, t0):
+        k = np.zeros((self.N, self.s))
         t1 = t0 + self.dt
 
         for j in range(self.s):
             # Explicitly calculate approximations of derivative.
             dt_j = self.dt * self.c[j]
-            dy_j = dt_j * np.dot(k, self.A[:, j])
-            k[j] = self.func(t0 + dt_j, y0 + dy_j)
+            dy_j = dt_j * np.dot(k, self.A[j, :])
+            k[:, j] = self.func(t0 + dt_j, y0 + dy_j)
 
         y1 = y0 + self.dt * np.dot(k, self.b)
 
@@ -87,10 +100,9 @@ class RungeKutta:
         if self.b_ is None:
             return y1, t1
 
-        # Weird issue where y1 and y1_ are way closer than they should be.
-        # This causes adaptive schemes to exponentially grow in step size.
         y1_ = y0 + self.dt*np.dot(k, self.b_)
-        sigma = (self._e_drift * self.dt / abs(y1 - y1_)) ** (1 / (self.p - 1))
+        delta = np.linalg.norm(y1 - y1_)
+        sigma = (self._e_drift * self.dt / delta) ** (1 / (self.p - 1))
 
         # Look into seeing if this segment can be tuned to get a desired
         # speed/accuracy relationship.
@@ -107,10 +119,13 @@ class RungeKutta:
 def harder_dp45(f, t_rng, y0, h, eps_abs):
     t0, tf = t_rng
 
+    if isinstance(y0, (int, float)):
+        y0 = np.asarray(y0)
+
     # Follows Harder's 0.5 safety factor
     e_drift = eps_abs / (tf - t0) / 2
 
-    iterator = RungeKutta(f, t0, y0, h, name='heun', e_drift=e_drift)
+    iterator = RungeKutta(f, t0, y0, h, name='dp45', e_drift=e_drift)
 
     y_out = [y0]
     t_out = [t0]
@@ -131,15 +146,51 @@ def harder_dp45(f, t_rng, y0, h, eps_abs):
 
 
 if __name__ == '__main__':
-
-    def f4a(t, y):
-        return y*(2-t) * t + (t - 1)
-
-    t2a, y2a = harder_dp45(f4a, [0, 5], 1, 0.1, 10e-3)
-
     import matplotlib.pyplot as plt
 
-    n = np.linspace(0, 1, t2a.size)
+    def test4a():
+        def f4a(t, y):
+            return y*(2-t) * t + (t - 1)
 
-    plt.plot(n, t2a, '.')
-    plt.show()
+        t4a, y4a = harder_dp45(f4a, [0, 5], 1, 0.1, 10e-6)
+        n4a = np.linspace(0, 1, t4a.size - 1)
+        d4a = np.diff(t4a)
+        fig, (ax1 ,ax2) = plt.subplots(2, 1)
+
+        ax1.plot(t4a, y4a)
+        ax2.plot(n4a , d4a, )
+        ax2.set_yscale('log', base=2)
+        plt.show()
+
+    def test4b():
+        def lorenz(t, y):
+            sigma = 10
+            rho = 28
+            beta = 8/3
+
+            y1 = np.zeros(3)
+            y1[0] = sigma * (y[1] - y[0])
+            y1[1] = y[0] * (rho - y[2]) - y[1]
+            y1[2] = y[0] * y[1] - beta * y[2]
+
+            return y1
+
+
+        t4b, y4b = harder_dp45(lorenz, [0, 10], np.ones(3), 0.01, 10e-4)
+
+        n4b = np.linspace(0, 1, t4b.size - 1)
+        d4b = np.diff(t4b)
+
+        fig = plt.figure()
+        ax1 = fig.add_subplot(121, projection='3d')
+        ax1.plot(y4b[:,0], y4b[:,1], y4b[:,2])
+
+        ax2 = fig.add_subplot(122)
+        ax2.plot(n4b, d4b)
+        ax2.set_yscale('log', base=2)
+        plt.show()
+
+    test4b()
+
+
+
